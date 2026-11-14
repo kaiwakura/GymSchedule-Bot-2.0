@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GymScheduleBot 2.0 · Muscle-building plans that fit your week</title>
+  <meta name="description" content="A muscle-building planner that reads your schedule and fits the right training split into your week.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23141414'/%3E%3Cpath d='M9 13l-3 3 3 3M23 13l3 3-3 3M7 16h18' stroke='%23d6f56e' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-tz="{{ settings.timezone }}">
+<div class="app">
+
+  <!-- ===================================================== plan pane -->
+  <main class="plan-pane">
+    <div class="brand-row">
+      <span class="brand"><span class="brand-mark">⇄</span> GymScheduleBot <span class="version">2.0</span></span>
+
+      <form class="toolbar" id="toolbar" method="post" action="/settings" enctype="multipart/form-data">
+        <input type="hidden" name="timezone" class="tz-input">
+        <label class="select-wrap">
+          <span class="sr-only">Calendar</span>
+          <select name="source" id="source-select">
+            <option value="google" {{ 'selected' if settings.source == 'google' }} {{ '' if google_configured else 'disabled' }}>
+              Google Calendar{{ '' if google_connected else (' (sign in)' if google_configured else ' (not set up)') }}
+            </option>
+            <option value="mine" {{ 'selected' if settings.source == 'mine' }}>My schedule only</option>
+            <option value="demo:busy" {{ 'selected' if settings.source == 'demo:busy' }}>Demo · {{ demo_calendars['busy'][0] }}</option>
+            <option value="demo:light" {{ 'selected' if settings.source == 'demo:light' }}>Demo · {{ demo_calendars['light'][0] }}</option>
+          </select>
+        </label>
+
+        <div class="segmented" role="radiogroup" aria-label="Commitment">
+          {% for value, label in [('light', 'Light'), ('moderate', 'Moderate'), ('dedicated', 'Dedicated')] %}
+          <label title="{{ {'light': 'Up to 2 sessions a week', 'moderate': 'Up to 4 sessions a week', 'dedicated': 'Up to 6 sessions a week'}[value] }}">
+            <input type="radio" name="commitment" value="{{ value }}" {{ 'checked' if settings.commitment == value }}><span>{{ label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+
+        <details class="more">
+          <summary>More</summary>
+          <div class="more-panel">
+            <label>Preferred time
+              <select name="preferred_time">
+                {% for value, label in [('any', 'Any time'), ('morning', 'Morning'), ('midday', 'Midday'), ('evening', 'Evening')] %}
+                <option value="{{ value }}" {{ 'selected' if settings.preferred_time == value }}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>Session length (min)
+              <input type="number" name="session_minutes" min="20" max="180" step="5" value="{{ settings.session_minutes }}">
+            </label>
+            <label>Travel buffer (min)
+              <input type="number" name="buffer_minutes" min="0" max="60" step="5" value="{{ settings.buffer_minutes }}">
+            </label>
+            {% if settings.blocked_weekdays %}
+            <p class="saved">Days off:
+              {% for d in settings.blocked_weekdays %}<span class="chip-sm">{{ ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d] }}</span>{% endfor %}
+            </p>
+            {% endif %}
+            <button type="button" class="link-btn" data-action="clear-events">Delete all my events</button>
+            <button type="submit" name="reset" value="1" class="link-btn">Reset preferences</button>
+            {% if google_connected %}
+            <button type="submit" formaction="/auth/google/logout" class="link-btn">Disconnect Google</button>
+            {% endif %}
+          </div>
+        </details>
+        <noscript><button type="submit">Update</button></noscript>
+      </form>
+    </div>
+
+    <div id="plan-region">
+      {% include "_plan.html" %}
+    </div>
+  </main>
+
+  <!-- ===================================================== AI coach -->
+  <aside class="coach" aria-label="AI Coach">
+    <header class="coach-head">
+      <span class="bot-avatar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="8" width="14" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 4.5V8M9.5 13h.01M14.5 13h.01M3 13v2M21 13v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </span>
+      <div>
+        <h2>AI Coach</h2>
+        <p class="status"><span class="dot{{ ' on' if ai_enabled }}"></span>{{ 'Gemini · Ready' if ai_enabled else 'Rule-based · Ready' }}</p>
+      </div>
+      <span class="knows">Knows your week</span>
+    </header>
+
+    <p class="coach-hint">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6zM18.5 14l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" fill="currentColor"/></svg>
+      I can move workouts, change your split, read a screenshot of your schedule, or remember how you prefer to train.
+    </p>
+
+    <div class="messages" id="messages" aria-live="polite">
+      <div class="divider"><span>Today</span></div>
+      {% for m in coach_messages %}
+      <div class="msg coach-msg"><span class="mini-bot" aria-hidden="true"></span><p{{ ' id="coach-intro"' if loop.last }}>{{ m }}</p></div>
+      {% endfor %}
+    </div>
+
+    <div class="chips" id="chips">
+      <button type="button" class="chip chip-strong" data-action="screenshot">📷 Read my schedule screenshot</button>
+      {% for c in ['I prefer evenings', 'Shorten to 45 min', 'No gym on Sundays', 'Make it a light week', 'Why this split?'] %}
+      <button type="button" class="chip">{{ c }}</button>
+      {% endfor %}
+    </div>
+
+    <div class="attachment" id="attachment" hidden>
+      <img id="attachment-thumb" alt="">
+      <span id="attachment-name"></span>
+      <button type="button" id="attachment-remove" aria-label="Remove image">✕</button>
+    </div>
+    <form class="composer" id="chat-form">
+      <input type="file" id="image-input" accept="image/png,image/jpeg,image/webp" hidden>
+      <button type="button" class="attach" data-action="screenshot" aria-label="Attach a schedule screenshot" title="Attach a schedule screenshot">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5l-7.6 7.6a5 5 0 01-7.1-7.1l8.1-8.1a3.3 3.3 0 014.7 4.7l-8.1 8.1a1.7 1.7 0 01-2.4-2.4l7.4-7.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button>
+      <label for="chat-input" class="sr-only">Message the AI Coach</label>
+      <textarea id="chat-input" rows="1" maxlength="500" placeholder="Ask to change your plan…"></textarea>
+      <button type="submit" class="send" aria-label="Send">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </form>
+    <p class="fineprint">GymScheduleBot's own code schedules your week; {{ 'Gemini' if ai_enabled else 'the coach' }} only reads your messages and screenshots.</p>
+  </aside>
+</div>
+<dialog class="event-dialog" id="event-dialog" aria-labelledby="event-dialog-title">
+  <form id="event-form" method="dialog">
+    <h2 id="event-dialog-title">Add an event</h2>
+    <label>Title<input name="title" maxlength="60" required placeholder="e.g. Calc lecture"></label>
+    <div class="row2">
+      <label>Starts<input type="time" name="start" required value="09:00"></label>
+      <label>Ends<input type="time" name="end" required value="10:00"></label>
+    </div>
+    <label>Day<select name="day" id="event-day"></select></label>
+    <label class="check"><input type="checkbox" name="weekly" checked> Repeats every week</label>
+    <p class="form-error" id="event-error" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" class="link-btn danger" id="event-delete" hidden>Delete</button>
+      <span></span>
+      <button type="button" class="ghost-btn" id="event-cancel">Cancel</button>
+      <button type="submit" class="dark-btn">Save</button>
+    </div>
+  </form>
+</dialog>
+<script src="/static/app.js"></script>
+</body>
+</html>
