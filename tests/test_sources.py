@@ -68,11 +68,12 @@ def test_plan_round_trips_through_ics(prefs):
 
 
 def test_demo_busy_week_shows_the_adaptive_fallback(prefs):
-    """The busy demo has free time only on Tue/Thu/Fri; Thu+Fri are back-to-back,
-    so a moderate lifter gets PPL instead of Full Body x3."""
+    """The busy demo has free time only on Tue/Thu/Fri. Full Body x3 can't get 48h of rest
+    (Thu+Fri), and PPL would train each muscle once, so it's Full Body x2 on Tue and Fri."""
     plan = build_plan(demo_busy_blocks("busy", MONDAY, prefs.timezone), MONDAY, prefs)
     assert [d.weekday() for d in plan.free_days] == [1, 3, 4]
-    assert plan.split_name == "Push/Pull/Legs"
+    assert plan.split_name == "Full Body x2"
+    assert [w.day.weekday() for w in plan.workouts] == [1, 4]
 
     prefs.commitment = Commitment.LIGHT
     plan = build_plan(demo_busy_blocks("busy", MONDAY, prefs.timezone), MONDAY, prefs)

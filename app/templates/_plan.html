@@ -59,62 +59,73 @@
 </div>
 
 <div class="week-wrap">
-  <div class="week-grid">
+  <div class="calendar" style="--hours: {{ grid_hours }}">
+    <div class="cal-corner"></div>
     {% for day in days %}
-    <section class="day{{ ' today' if day.is_today }}" aria-label="{{ day.weekday }} {{ day.date_label }}">
-      <div class="day-head">
-        <div>
-          <span class="weekday">{{ day.weekday }}</span>
-          <span class="tag tag-{{ day.tag }}">{{ day.tag_label }}</span>
-        </div>
+    <div class="cal-head{{ ' today' if day.is_today }}">
+      <div class="head-top">
+        <span class="weekday">{{ day.weekday }}</span>
         <span class="date-num">{{ day.date_num }}</span>
       </div>
-
-      <div class="events">
-        {% for e in day.events %}
-        {% if e.id %}
-        <button type="button" class="event mine" data-event-id="{{ e.id }}" title="Edit {{ e.title }}">
-          <span class="e-time">{{ e.time }}</span><span class="e-title">{{ e.title }}</span>
-        </button>
-        {% else %}
-        <div class="event"><span class="e-time">{{ e.time }}</span><span class="e-title">{{ e.title }}</span></div>
-        {% endif %}
-        {% endfor %}
-        <button type="button" class="add-event" data-action="add-event" data-date="{{ day.iso }}" data-weekday="{{ day.weekday_index }}" data-label="{{ day.weekday_long }}, {{ day.date_label }}" aria-label="Add an event on {{ day.weekday_long }}">+ Add</button>
-      </div>
-
-      <div class="slot">
+      <div class="head-tags">
+        <span class="tag tag-{{ day.tag }}">{{ day.tag_label }}</span>
         {% if day.workout %}
-        {% set w = day.workout %}
-        <button type="button" class="workout t-{{ w.slug }}" data-dialog="dlg-{{ w.id }}">
-          <span class="w-icon">{{ dumbbell }}</span>
-          <span class="w-text">
-            <span class="w-name">{{ w.name }}</span>
-            <span class="w-focus">{{ w.focus }}</span>
-          </span>
-          <span class="w-meta"><span class="w-time">{{ clockicon }}{{ w.time }}</span><span>{{ w.minutes }} min</span></span>
-        </button>
-        <dialog id="dlg-{{ w.id }}" class="session-dialog">
-          <div class="dlg-head t-{{ w.slug }}">
-            <span class="w-icon">{{ dumbbell }}</span>
-            <div><h2>{{ w.name }}</h2><p>{{ day.weekday|capitalize }} {{ day.date_label }} · {{ w.time }} · {{ w.minutes }} min</p></div>
-          </div>
-          <ol>{% for ex in w.exercises %}<li>{{ ex }}</li>{% endfor %}</ol>
-          <p class="dlg-note">Sets × reps for muscle building. Pick a weight that leaves about 1–3 reps in the tank.</p>
-          <form method="dialog"><button class="ghost-btn" type="submit">Close</button></form>
-        </dialog>
+        <span class="session-pill t-{{ day.workout.slug }}">{{ day.workout.name }}</span>
         {% else %}
-        <div class="rest">
-          <span class="rest-icon">{{ sun }}</span>
-          <span class="rest-title">{{ day.rest_title }}</span>
-          <span class="rest-sub">{{ day.rest_sub }}</span>
-        </div>
+        <span class="rest-pill" title="{{ day.rest_sub }}">{{ sun }}{{ day.rest_title }}</span>
         {% endif %}
       </div>
+    </div>
+    {% endfor %}
+
+    <div class="gutter" aria-hidden="true">
+      {% for h in hours %}<span style="top: {{ h.top }}%">{{ h.label }}</span>{% endfor %}
+    </div>
+    {% for day in days %}
+    <section class="day-col{{ ' today' if day.is_today }}" aria-label="{{ day.weekday_long }} {{ day.date_label }}"
+             data-date="{{ day.iso }}" data-weekday="{{ day.weekday_index }}" data-label="{{ day.weekday_long }}, {{ day.date_label }}"
+             data-first-hour="{{ grid_first_hour }}" data-hours="{{ grid_hours }}">
+      {% for e in day.events if e.top is defined %}
+      {% if e.id %}
+      <button type="button" class="block event mine{{ ' short' if e.height < 4 }}" data-event-id="{{ e.id }}"
+              style="top: {{ e.top }}%; height: {{ e.height }}%; left: {{ e.left }}%; width: {{ e.width }}%"
+              title="{{ e.title }} · {{ e.range }} (click to edit)">
+        <span class="e-title">{{ e.title }}</span><span class="e-time">{{ e.range }}</span>
+      </button>
+      {% else %}
+      <div class="block event{{ ' short' if e.height < 4 }}"
+           style="top: {{ e.top }}%; height: {{ e.height }}%; left: {{ e.left }}%; width: {{ e.width }}%"
+           title="{{ e.title }} · {{ e.range }}">
+        <span class="e-title">{{ e.title }}</span><span class="e-time">{{ e.range }}</span>
+      </div>
+      {% endif %}
+      {% endfor %}
+
+      {% if day.workout %}
+      {% set w = day.workout %}
+      <button type="button" class="block workout t-{{ w.slug }}{{ ' compact' if w.height < 7 }}" data-dialog="dlg-{{ w.id }}"
+              style="top: {{ w.top }}%; height: {{ w.height }}%">
+        <span class="w-row"><span class="w-icon">{{ dumbbell }}</span><span class="w-name">{{ w.name }}</span></span>
+        <span class="w-range">{{ w.range }}</span>
+        <span class="w-focus">{{ w.focus }}</span>
+      </button>
+      <dialog id="dlg-{{ w.id }}" class="session-dialog">
+        <div class="dlg-head t-{{ w.slug }}">
+          <span class="w-icon">{{ dumbbell }}</span>
+          <div><h2>{{ w.name }}</h2><p>{{ day.weekday_long }} {{ day.date_label }} · {{ w.range }} · {{ w.sets }} sets</p></div>
+        </div>
+        <ol>{% for ex in w.exercises %}<li>{{ ex }}</li>{% endfor %}</ol>
+        <p class="dlg-note">Sets × reps for muscle building. Pick a weight that leaves about 1–3 reps in the tank.</p>
+        <form method="dialog"><button class="ghost-btn" type="submit">Close</button></form>
+      </dialog>
+      {% endif %}
+
+      {% if day.now_top is not none %}<span class="now-line" style="top: {{ day.now_top }}%" aria-hidden="true"></span>{% endif %}
     </section>
     {% endfor %}
   </div>
 </div>
+<p class="grid-hint">Tip: click any empty time to add your own event there. Click a workout to see its exercises.</p>
 
 <details class="why">
   <summary>How this plan was decided</summary>

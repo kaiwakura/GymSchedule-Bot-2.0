@@ -38,6 +38,12 @@
           {% endfor %}
         </div>
 
+        <div class="segmented" role="radiogroup" aria-label="Workout length">
+          {% for m in [45, 60, 75, 90] %}
+          <label title="{{ m }}-minute workouts"><input type="radio" name="session_minutes" value="{{ m }}" {{ 'checked' if settings.session_minutes == m }}><span>{{ m }}<small> min</small></span></label>
+          {% endfor %}
+        </div>
+
         <details class="more">
           <summary>More</summary>
           <div class="more-panel">
@@ -47,9 +53,6 @@
                 <option value="{{ value }}" {{ 'selected' if settings.preferred_time == value }}>{{ label }}</option>
                 {% endfor %}
               </select>
-            </label>
-            <label>Session length (min)
-              <input type="number" name="session_minutes" min="20" max="180" step="5" value="{{ settings.session_minutes }}">
             </label>
             <label>Travel buffer (min)
               <input type="number" name="buffer_minutes" min="0" max="60" step="5" value="{{ settings.buffer_minutes }}">

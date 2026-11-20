@@ -30,6 +30,11 @@ class Split:
     def days(self) -> int:
         return len(self.sessions)
 
+    @property
+    def hits_every_muscle_twice(self) -> bool:
+        """The core muscle-building rule: every major muscle is trained at least twice a week."""
+        return all(sum(muscle in s.muscle_groups for s in self.sessions) >= 2 for muscle in MAJOR_MUSCLES)
+
 
 # ---------------------------------------------------------------- sessions ---
 # Built for muscle building (hypertrophy): mostly 6-12 reps on compound lifts and
@@ -41,6 +46,9 @@ CHEST, BACK, SHOULDERS, BICEPS, TRICEPS, QUADS, HAMSTRINGS, GLUTES, CALVES, CORE
 )  # fmt: skip
 
 E = Exercise
+
+# The muscles the "train everything twice a week" rule checks.
+MAJOR_MUSCLES = (CHEST, BACK, SHOULDERS, QUADS, HAMSTRINGS, GLUTES)
 
 FULL_BODY = SessionTemplate(
     "Full Body",
@@ -137,23 +145,74 @@ MAX_DAYS: dict[Commitment, int] = {
 def candidate_splits(days: int, commitment: Commitment) -> list[Split]:
     """Splits that use exactly ``days`` sessions, best option first.
 
-    The planner tries them in order and keeps the first one it can fit into the
-    week without breaking recovery rules.
+    Splits that train every muscle twice a week come first. The ones that don't
+    (Push/Pull/Legs once, Upper/Lower once, Full Body once) are last resorts the
+    planner only uses when nothing better fits.
     """
     if days <= 0:
         return []
     by_days: dict[int, list[str]] = {
         1: ["Full Body x1"],
         2: ["Full Body x2", "Upper/Lower x1"],
-        # For muscle building, every muscle should be trained about twice a week, so 3 days means
-        # Full Body x3. It needs rest days between sessions; when the 3 free days are back-to-back,
-        # PPL is the fallback (it can run on consecutive days because each day trains different muscles).
         3: ["Full Body x3", "Push/Pull/Legs"],
         4: ["Upper/Lower x2"],
         5: ["PPL + Upper/Lower"],
         6: ["Push/Pull/Legs x2"],
     }  # fmt: skip
     return [SPLITS[name] for name in by_days.get(min(days, 6), [])]
+
+
+# ------------------------------------------------------------- session length ---
+# Rough time per working set, including rest between sets, plus a warm-up.
+MINUTES_PER_SET = 2.5
+WARMUP_MINUTES = 5
+MIN_SETS_PER_EXERCISE = 2
+MAX_SETS_COMPOUND = 5  # the first two lifts of each session are the big compound ones
+MAX_SETS_ISOLATION = 4
+
+
+def set_budget(minutes: int) -> int:
+    """How many working sets fit in a session of this length (45 min -> 16, 60 -> 22, 90 -> 34)."""
+    return max(6, int((minutes - WARMUP_MINUTES) / MINUTES_PER_SET))
+
+
+def _max_sets(index: int) -> int:
+    return MAX_SETS_COMPOUND if index < 2 else MAX_SETS_ISOLATION
+
+
+def fit_to_duration(template: SessionTemplate, minutes: int) -> SessionTemplate:
+    """Shrink or grow a session so its sets fit the workout length.
+
+    Shorter: take a set from whichever exercise has the most (later exercises first
+    on ties), down to 2 sets each, then drop exercises from the end (keeping 3+).
+    Longer: add one set at a time, compound lifts first, up to 5 sets for the two
+    main lifts and 4 for the rest. Extra time beyond that becomes longer rests.
+    """
+    sets = [ex.sets for ex in template.exercises]
+    budget = set_budget(minutes)
+
+    while sum(sets) > budget:
+        most = max(sets)
+        if most > MIN_SETS_PER_EXERCISE:
+            i = max(i for i, n in enumerate(sets) if n == most)
+            sets[i] -= 1
+        elif len(sets) > 3:
+            sets.pop()
+        else:
+            break
+    while sum(sets) < budget:
+        grew = False
+        for i, n in enumerate(sets):
+            if sum(sets) < budget and n < _max_sets(i):
+                sets[i] += 1
+                grew = True
+        if not grew:
+            break
+
+    exercises = tuple(
+        Exercise(ex.name, n, ex.reps, ex.muscles) for ex, n in zip(template.exercises, sets, strict=False)
+    )
+    return SessionTemplate(template.name, template.muscle_groups, exercises, template.focus)
 
 
 # Main muscles shown in the weekly volume counter, in display order.

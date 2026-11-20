@@ -3,7 +3,7 @@ from datetime import timedelta
 from app.models import Commitment
 from app.scheduler.planner import build_plan
 from app.views import build_days, busy_minutes, busyness, summary_line
-from tests.conftest import MONDAY, block_whole_day, busy
+from tests.conftest import MONDAY, at, block_whole_day, busy
 
 
 def test_busyness_thresholds():
@@ -26,7 +26,9 @@ def test_days_have_cards_rest_and_tags(prefs):
 
     assert len(days) == 7
     assert days[0]["weekday"] == "MON" and days[0]["date_num"] == 16
-    assert days[0]["tag"] == "busy" and days[0]["events"][0] == {"time": "7:00 AM", "title": "Work", "id": None}
+    assert days[0]["tag"] == "busy"
+    work = days[0]["events"][0]
+    assert (work["time"], work["title"], work["id"], work["range"]) == ("7:00 AM", "Work", None, "7:00 AM – 6:00 PM")
     assert days[1]["is_today"]
     assert days[2]["workout"] is None and days[2]["rest_sub"] == "No free window"
     assert days[6]["tag"] == "off" and days[6]["rest_title"] == "Day off"
@@ -41,3 +43,41 @@ def test_past_days_are_marked(prefs):
     plan = build_plan(calendar, MONDAY, prefs)
     days = build_days(plan, calendar, prefs, today=MONDAY + timedelta(days=3))
     assert days[0]["rest_title"] == "Past"
+
+
+# ------------------------------------------------------------ calendar grid ---
+def test_blocks_are_positioned_by_time(prefs):
+    # Grid runs 6 AM-10 PM (16 hours). A 9-10 AM event starts 3h in and lasts 1h.
+    calendar = [busy(0, 9, 10, "Lecture")]
+    plan = build_plan(calendar, MONDAY, prefs)
+    ev = build_days(plan, calendar, prefs)[0]["events"][0]
+    assert ev["top"] == round(3 / 16 * 100, 3)
+    assert ev["height"] == round(1 / 16 * 100, 3)
+    assert (ev["left"], ev["width"]) == (0.0, 100.0)
+
+
+def test_overlapping_events_share_the_width(prefs):
+    calendar = [busy(0, 9, 11, "A"), busy(0, 10, 12, "B"), busy(0, 14, 15, "C")]
+    plan = build_plan(calendar, MONDAY, prefs)
+    a, b, c = build_days(plan, calendar, prefs)[0]["events"]
+    assert (a["left"], a["width"]) == (0.0, 50.0)
+    assert (b["left"], b["width"]) == (50.0, 50.0)
+    assert (c["left"], c["width"]) == (0.0, 100.0)
+
+
+def test_workout_block_and_now_line(prefs):
+    plan = build_plan([], MONDAY, prefs)
+    first = plan.workouts[0]
+    day = build_days(plan, [], prefs, today=MONDAY, now=at(0, 14))[(first.day - MONDAY).days]
+    assert day["workout"]["height"] > 0 and day["workout"]["range"].endswith("AM")
+    monday = build_days(plan, [], prefs, today=MONDAY, now=at(0, 14))[0]
+    assert monday["now_top"] == round(8 / 16 * 100, 3)  # 2 PM is halfway through 6 AM-10 PM
+
+
+def test_hour_labels():
+    from app.models import Preferences
+    from app.views import hour_labels
+
+    labels = hour_labels(Preferences())
+    assert labels[0] == {"label": "6 AM", "top": 0.0}
+    assert labels[6]["label"] == "12 PM" and labels[-1]["label"] == "9 PM"

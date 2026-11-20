@@ -44,7 +44,7 @@ from app.settings import Settings
 from app.sources import custom, google_calendar
 from app.sources.demo import DEMO_CALENDARS, demo_busy_blocks
 from app.sources.ics import plan_to_ics
-from app.views import build_days, summary_line, volume_chips
+from app.views import build_days, grid_hours, hour_labels, summary_line, volume_chips
 
 load_dotenv()
 log = logging.getLogger("gymschedulebot")
@@ -107,6 +107,7 @@ class PlanState:
     busy: list[BusyBlock]
     events: list[dict]
     today: date
+    now: datetime
     notice: str | None = None
 
 
@@ -147,14 +148,18 @@ def current_plan(request: Request, settings: Settings, events: list[dict] | None
     busy += custom.busy_blocks(events, start, settings.timezone, PLAN_DAYS)
     plan = build_plan(busy, start, prefs, now=now)
     save_settings(request, settings)
-    return PlanState(settings, prefs, plan, busy, events, start, notice)
+    return PlanState(settings, prefs, plan, busy, events, start, now, notice)
 
 
 def plan_context(request: Request, state: PlanState) -> dict:
     end = state.plan.week_start + timedelta(days=PLAN_DAYS - 1)
+    first_hour, last_hour = grid_hours(state.prefs)
     return {
         "plan": state.plan,
-        "days": build_days(state.plan, state.busy, state.prefs, today=state.today),
+        "days": build_days(state.plan, state.busy, state.prefs, today=state.today, now=state.now),
+        "hours": hour_labels(state.prefs),
+        "grid_first_hour": first_hour,
+        "grid_hours": last_hour - first_hour,
         "summary": summary_line(state.plan),
         "volume": volume_chips(state.plan),
         "week_range": f"{state.plan.week_start.strftime('%b %d')} – {end.strftime('%b %d')}".replace(" 0", " "),

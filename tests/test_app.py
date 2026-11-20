@@ -2,6 +2,7 @@
 
 import base64
 import json
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +16,12 @@ TODAY_EVENT = {"id": "e_test1", "title": "Calc lecture", "start": "09:00", "end"
 
 @pytest.fixture
 def client(monkeypatch):
+    # Freeze "now" at Monday 8 AM so the 7-day plan doesn't depend on when the tests run
+    # (late at night, today has no workout window left).
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    monkeypatch.setattr(main, "local_now", lambda prefs: datetime(2026, 11, 16, 8, 0, tzinfo=ZoneInfo(prefs.timezone)))
     # Rule-based coach (no API key) and no Google, so tests never touch the network.
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
@@ -105,7 +112,8 @@ def test_chat_moves_workouts_to_mornings(client):
     client.post("/settings", data={"source": "mine"})
     data = chat(client, "I prefer mornings").json()
     assert data["changes"] == ["mornings"]
-    assert "AM" in data["html"] and "PM</span>" not in data["html"]
+    ranges = re.findall(r'class="w-range">([^<]+)<', data["html"])
+    assert ranges and all(r.endswith("AM") for r in ranges)
 
 
 def test_chat_question_without_changes_explains_the_plan(client):
@@ -181,3 +189,10 @@ def test_tampered_cookie_settings_are_ignored():
     assert s.source == "demo:busy"
     assert s.session_minutes == 180
     assert s.blocked_weekdays == [2]
+
+
+def test_workout_length_control(client):
+    client.post("/settings", data={"source": "mine", "session_minutes": "90"})
+    html = client.get("/").text
+    assert 'value="90" checked' in html
+    assert "6:00 PM – 7:30 PM" in html  # evening workouts now last 90 minutes

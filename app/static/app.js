@@ -40,7 +40,10 @@ async function post(url, body) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Something went wrong.");
-  if (data.html) planRegion.innerHTML = data.html;
+  if (data.html) {
+    planRegion.innerHTML = data.html;
+    revealWorkouts();
+  }
   if (Array.isArray(data.events)) {
     myEvents = data.events; // the server's cleaned list (including events the coach added)
     saveEvents(myEvents);
@@ -48,6 +51,20 @@ async function post(url, body) {
   return data;
 }
 const replan = () => post("/api/plan", {});
+
+// If the calendar is taller than the screen, scroll it so the first workout is in view.
+function revealWorkouts() {
+  const wrap = planRegion.querySelector(".week-wrap");
+  const workouts = [...planRegion.querySelectorAll(".workout")];
+  if (!wrap || !workouts.length || wrap.scrollHeight <= wrap.clientHeight) return;
+  const header = planRegion.querySelector(".cal-head")?.offsetHeight || 0;
+  const firstTop = Math.min(...workouts.map((w) => w.offsetTop));
+  const lastBottom = Math.max(...workouts.map((w) => w.offsetTop + w.offsetHeight));
+  if (lastBottom + header > wrap.scrollTop + wrap.clientHeight) {
+    wrap.scrollTop = Math.max(0, firstTop - 3 * 40);
+  }
+}
+revealWorkouts();
 
 // Forms that need your events (Download .ics, Add to Google Calendar).
 planRegion.addEventListener("submit", (e) => {
@@ -70,29 +87,33 @@ let editingId = null;
 
 function fillDays(selectedDate) {
   daySelect.innerHTML = "";
-  planRegion.querySelectorAll(".add-event[data-date]").forEach((btn) => {
+  planRegion.querySelectorAll(".day-col[data-date]").forEach((col) => {
     const opt = document.createElement("option");
-    opt.value = `${btn.dataset.date}|${btn.dataset.weekday}`;
-    opt.textContent = btn.dataset.label;
-    if (btn.dataset.date === selectedDate) opt.selected = true;
+    opt.value = `${col.dataset.date}|${col.dataset.weekday}`;
+    opt.textContent = col.dataset.label;
+    if (col.dataset.date === selectedDate) opt.selected = true;
     daySelect.appendChild(opt);
   });
 }
 
-function openEditor({ date, eventId }) {
+const pad = (n) => String(n).padStart(2, "0");
+const toHHMM = (minutes) => `${pad(Math.floor(minutes / 60) % 24)}:${pad(minutes % 60)}`;
+
+function openEditor({ date, eventId, startMinutes }) {
   errorBox.hidden = true;
   editingId = eventId || null;
   const ev = myEvents.find((x) => x.id === editingId);
   document.getElementById("event-dialog-title").textContent = ev ? "Edit event" : "Add an event";
   deleteBtn.hidden = !ev;
   eventForm.title.value = ev ? ev.title : "";
-  eventForm.start.value = ev ? ev.start : "09:00";
-  eventForm.end.value = ev ? ev.end : "10:00";
+  const startAt = startMinutes ?? 9 * 60;
+  eventForm.start.value = ev ? ev.start : toHHMM(startAt);
+  eventForm.end.value = ev ? ev.end : toHHMM(Math.min(startAt + 60, 23 * 60 + 59));
   eventForm.weekly.checked = ev ? ev.repeat === "weekly" : true;
   let dateForSelect = date;
   if (ev && ev.repeat === "once") dateForSelect = ev.date;
   if (ev && ev.repeat === "weekly") {
-    const match = [...planRegion.querySelectorAll(".add-event[data-weekday]")].find(
+    const match = [...planRegion.querySelectorAll(".day-col[data-weekday]")].find(
       (b) => Number(b.dataset.weekday) === ev.weekday
     );
     dateForSelect = match ? match.dataset.date : date;
@@ -251,22 +272,23 @@ document.getElementById("chips").addEventListener("click", (e) => {
 document.addEventListener("click", async (e) => {
   const target = e.target.closest("[data-action], [data-dialog], [data-event-id]");
   if (!target) return;
+  const action = target.dataset.action;
 
   if (target.dataset.dialog) {
     document.getElementById(target.dataset.dialog)?.showModal();
   } else if (target.dataset.eventId) {
     openEditor({ eventId: target.dataset.eventId });
-  } else if (target.dataset.action === "add-event") {
+  } else if (action === "add-event") {
     openEditor({ date: target.dataset.date });
-  } else if (target.dataset.action === "screenshot") {
+  } else if (action === "screenshot") {
     imageInput.click();
-  } else if (target.dataset.action === "clear-events") {
+  } else if (action === "clear-events") {
     if (myEvents.length && confirmClear()) {
       myEvents = [];
       saveEvents(myEvents);
       await replan();
     }
-  } else if (target.dataset.action === "replan" && target.getAttribute("aria-busy") !== "true") {
+  } else if (action === "replan" && target.getAttribute("aria-busy") !== "true") {
     target.setAttribute("aria-busy", "true");
     const typing = addMessage("Re-planning your week", "coach");
     typing.classList.add("typing");
@@ -280,6 +302,17 @@ document.addEventListener("click", async (e) => {
     }
   }
 });
+
+// Click an empty spot in a day column to add an event at that time (snapped to 30 minutes).
+planRegion.addEventListener("click", (e) => {
+  const col = e.target.closest(".day-col");
+  if (!col || e.target !== col) return; // clicks on events and workouts are handled above
+  const rect = col.getBoundingClientRect();
+  const fraction = (e.clientY - rect.top) / rect.height;
+  const minutes = Number(col.dataset.firstHour) * 60 + fraction * Number(col.dataset.hours) * 60;
+  openEditor({ date: col.dataset.date, startMinutes: Math.floor(minutes / 30) * 30 });
+});
+
 function confirmClear() {
   return window.confirm(`Delete all ${myEvents.length} of your events? This can't be undone.`);
 }
